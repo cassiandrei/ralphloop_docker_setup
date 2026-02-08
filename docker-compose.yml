@@ -1,0 +1,61 @@
+# Docker Compose para Ralph Loop
+# Uso: docker compose run ralph
+
+services:
+  ralph:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    
+    # Variáveis de ambiente
+    environment:
+      # Token OAuth da assinatura Max (obrigatório)
+      # Gere com: claude setup-token
+      - CLAUDE_CODE_OAUTH_TOKEN=${CLAUDE_CODE_OAUTH_TOKEN:-}
+      
+      # Configurações do Ralph Loop
+      - MAX_ITERATIONS=${MAX_ITERATIONS:-50}
+      - TIMEOUT_MINUTES=${TIMEOUT_MINUTES:-30}
+      - RATE_LIMIT_CALLS=${RATE_LIMIT_CALLS:-100}
+      - PRD_FILE=${PRD_FILE:-tasks/prd.md}
+      - PROGRESS_FILE=${PROGRESS_FILE:-tasks/progress.md}
+      
+      # Firewall (requer cap_add NET_ADMIN)
+      - ENABLE_FIREWALL=${ENABLE_FIREWALL:-true}
+    
+    # Montar projeto local
+    volumes:
+      - ./workspace:/workspace
+      # Persistir configurações do Claude entre sessões
+      - claude-config:/home/claude/.claude
+    
+    # Capabilities para firewall
+    cap_add:
+      - NET_ADMIN
+    
+    # Limites de recursos (ajuste conforme necessário)
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+        reservations:
+          memory: 1G
+    
+    # Interativo por padrão
+    stdin_open: true
+    tty: true
+    
+    # Diretório de trabalho
+    working_dir: /workspace
+
+  # Serviço para rodar o loop diretamente
+  loop:
+    extends:
+      service: ralph
+    command: ["ralph-loop.sh"]
+    stdin_open: false
+    tty: false
+
+# Volume persistente para configurações
+volumes:
+  claude-config:
