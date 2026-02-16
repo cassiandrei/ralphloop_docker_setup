@@ -469,31 +469,36 @@ while true; do
   EXIT_STATUS="ok"
 
   if [ -n "$TIMEOUT_CMD" ]; then
-    if $TIMEOUT_CMD "$ITERATION_TIMEOUT" "${DOCKER_CMD[@]}" 2>&1 | tee -a "$LOG_FILE"; then
+    # --kill-after=30s: escalate to SIGKILL if SIGTERM is ignored
+    # PIPESTATUS[0]: capture gtimeout's exit code, not tee's
+    $TIMEOUT_CMD --kill-after=30s "$ITERATION_TIMEOUT" "${DOCKER_CMD[@]}" 2>&1 | tee -a "$LOG_FILE"
+    EXIT_CODE=${PIPESTATUS[0]}
+
+    if [ "$EXIT_CODE" -eq 0 ]; then
       CONSECUTIVE_ERRORS=0
+    elif [ "$EXIT_CODE" -eq 124 ] || [ "$EXIT_CODE" -eq 137 ]; then
+      EXIT_STATUS="timeout"
+      echo ""
+      echo "TIMEOUT: Iteration $ITERATION exceeded $ITERATION_TIMEOUT"
+      echo "Killing orphan containers and moving to next iteration..."
+      docker ps -q --filter "ancestor=$IMAGE_NAME" | xargs docker kill 2>/dev/null || true
+      CONSECUTIVE_ERRORS=$((CONSECUTIVE_ERRORS + 1))
     else
-      EXIT_CODE=$?
-      if [ "$EXIT_CODE" -eq 124 ]; then
-        EXIT_STATUS="timeout"
-        echo ""
-        echo "TIMEOUT: Iteration $ITERATION exceeded $ITERATION_TIMEOUT"
-        echo "Killing container and moving to next iteration..."
-        # timeout already killed the process, but ensure no orphan container
-        docker ps -q --filter "ancestor=$IMAGE_NAME" | xargs -r docker kill 2>/dev/null || true
-      else
-        EXIT_STATUS="error"
-        echo ""
-        echo "ERROR: Iteration $ITERATION failed (exit code $EXIT_CODE)"
-      fi
+      EXIT_STATUS="error"
+      echo ""
+      echo "ERROR: Iteration $ITERATION failed (exit code $EXIT_CODE)"
       CONSECUTIVE_ERRORS=$((CONSECUTIVE_ERRORS + 1))
     fi
   else
     # No timeout available — run without protection
-    if "${DOCKER_CMD[@]}" 2>&1 | tee -a "$LOG_FILE"; then
+    "${DOCKER_CMD[@]}" 2>&1 | tee -a "$LOG_FILE"
+    EXIT_CODE=${PIPESTATUS[0]}
+
+    if [ "$EXIT_CODE" -eq 0 ]; then
       CONSECUTIVE_ERRORS=0
     else
       EXIT_STATUS="error"
-      echo "ERROR: Iteration $ITERATION failed"
+      echo "ERROR: Iteration $ITERATION failed (exit code $EXIT_CODE)"
       CONSECUTIVE_ERRORS=$((CONSECUTIVE_ERRORS + 1))
     fi
   fi

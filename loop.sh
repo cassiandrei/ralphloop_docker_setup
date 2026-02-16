@@ -577,27 +577,33 @@ while true; do
   EXIT_STATUS="ok"
 
   if [ -n "$TIMEOUT_CMD" ]; then
-    if $TIMEOUT_CMD "$ITERATION_TIMEOUT" bash -c "cat '$PROMPT_FILE' | claude ${CLAUDE_ARGS[*]}" 2>&1 | tee -a "$LOG_FILE"; then
+    # --kill-after=30s: escalate to SIGKILL if SIGTERM is ignored
+    # PIPESTATUS[0]: capture gtimeout's exit code, not tee's
+    $TIMEOUT_CMD --kill-after=30s "$ITERATION_TIMEOUT" bash -c "cat '$PROMPT_FILE' | claude ${CLAUDE_ARGS[*]}" 2>&1 | tee -a "$LOG_FILE"
+    EXIT_CODE=${PIPESTATUS[0]}
+
+    if [ "$EXIT_CODE" -eq 0 ]; then
       CONSECUTIVE_ERRORS=0
+    elif [ "$EXIT_CODE" -eq 124 ] || [ "$EXIT_CODE" -eq 137 ]; then
+      EXIT_STATUS="timeout"
+      echo ""
+      echo "TIMEOUT: Iteration $ITERATION exceeded $ITERATION_TIMEOUT"
+      CONSECUTIVE_ERRORS=$((CONSECUTIVE_ERRORS + 1))
     else
-      EXIT_CODE=$?
-      if [ "$EXIT_CODE" -eq 124 ]; then
-        EXIT_STATUS="timeout"
-        echo ""
-        echo "TIMEOUT: Iteration $ITERATION exceeded $ITERATION_TIMEOUT"
-      else
-        EXIT_STATUS="error"
-        echo ""
-        echo "ERROR: Iteration $ITERATION failed (exit code $EXIT_CODE)"
-      fi
+      EXIT_STATUS="error"
+      echo ""
+      echo "ERROR: Iteration $ITERATION failed (exit code $EXIT_CODE)"
       CONSECUTIVE_ERRORS=$((CONSECUTIVE_ERRORS + 1))
     fi
   else
-    if cat "$PROMPT_FILE" | claude "${CLAUDE_ARGS[@]}" 2>&1 | tee -a "$LOG_FILE"; then
+    cat "$PROMPT_FILE" | claude "${CLAUDE_ARGS[@]}" 2>&1 | tee -a "$LOG_FILE"
+    EXIT_CODE=${PIPESTATUS[0]}
+
+    if [ "$EXIT_CODE" -eq 0 ]; then
       CONSECUTIVE_ERRORS=0
     else
       EXIT_STATUS="error"
-      echo "ERROR: Iteration $ITERATION failed"
+      echo "ERROR: Iteration $ITERATION failed (exit code $EXIT_CODE)"
       CONSECUTIVE_ERRORS=$((CONSECUTIVE_ERRORS + 1))
     fi
   fi
