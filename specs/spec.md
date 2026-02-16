@@ -1,1 +1,0 @@
-Gere a spec da demanda aqui

@@ -2,7 +2,7 @@
 # Ralph Wiggum Loop - Autonomous AI Coding
 # Based on Geoffrey Huntley's original technique
 
-set -e  # Exit on error
+# NOTE: Do NOT use set -e — we handle errors per-iteration to keep the loop alive
 
 # Verify Claude CLI is installed
 if ! command -v claude &>/dev/null; then
@@ -23,6 +23,7 @@ sed_i() {
 # Configuration
 MODEL="${RALPH_MODEL:-opus}"
 VERBOSE="${RALPH_VERBOSE:-false}"
+ITERATION_TIMEOUT="${RALPH_TIMEOUT:-15m}"  # Max time per iteration
 
 # Validate model against whitelist (security: prevents command injection)
 validate_model() {
@@ -96,14 +97,18 @@ while [[ $# -gt 0 ]]; do
       validate_model "$MODEL"
       shift 2
       ;;
+    --timeout)
+      ITERATION_TIMEOUT=$2
+      shift 2
+      ;;
     *)
-      echo "Usage: $0 [plan] [limit] [--verbose] [--model opus|sonnet]"
+      echo "Usage: $0 [plan] [limit] [--verbose] [--model opus|sonnet] [--timeout 15m]"
       echo ""
       echo "Examples:"
       echo "  $0              # Build mode, unlimited (exits when all tasks done)"
       echo "  $0 20           # Build mode, max 20 iterations"
-      echo "  $0 plan         # Plan mode, exits when plan is complete"
-      echo "  $0 plan 5       # Plan mode, max 5 iterations"
+      echo "  $0 plan         # Plan mode, 1 iteration (default)"
+      echo "  $0 plan 3       # Plan mode, 3 iterations for refinement"
       echo "  $0 --verbose    # Enable verbose logging"
       echo "  $0 --model sonnet  # Use Sonnet instead of Opus"
       echo ""
@@ -114,6 +119,25 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
+
+# Plan mode defaults to 1 iteration, with more timeout
+if [ "$MODE" = "plan" ]; then
+  [ -z "$LIMIT" ] && LIMIT=1
+  [ "$ITERATION_TIMEOUT" = "15m" ] && ITERATION_TIMEOUT="30m"
+fi
+
+# Verify timeout command exists
+if ! command -v timeout &>/dev/null && ! command -v gtimeout &>/dev/null; then
+  echo "Warning: 'timeout' command not found. brew install coreutils (macOS)"
+  TIMEOUT_CMD=""
+elif command -v gtimeout &>/dev/null; then
+  TIMEOUT_CMD="gtimeout"
+else
+  TIMEOUT_CMD="timeout"
+fi
+
+CONSECUTIVE_ERRORS=0
+MAX_CONSECUTIVE_ERRORS=5
 
 # ============================================================================
 # REMOTE BACKUP SETUP
@@ -437,7 +461,7 @@ cleanup() {
 }
 
 trap 'cleanup "interrupted"; exit 130' INT
-trap 'cleanup "error" "$?"; exit $?' ERR
+# NOTE: No ERR trap — we handle errors per-iteration to keep the loop alive
 
 # ============================================================================
 # MAIN LOOP
@@ -485,6 +509,7 @@ if [ -n "$LIMIT" ]; then
 else
   echo "Limit: until complete (Ctrl+C to stop)"
 fi
+echo "Timeout: $ITERATION_TIMEOUT per iteration"
 echo "Stuck threshold: $MAX_STUCK failures"
 echo "Log file: $LOG_FILE (tail -f to watch)"
 echo ""
@@ -539,26 +564,57 @@ while true; do
     exit 0
   fi
 
-  # Run Claude with prompt (tee to log file for observability)
+  # Check consecutive error limit
+  if [ "$CONSECUTIVE_ERRORS" -ge "$MAX_CONSECUTIVE_ERRORS" ]; then
+    echo ""
+    echo "FATAL: $MAX_CONSECUTIVE_ERRORS consecutive errors. Stopping loop."
+    cleanup "consecutive_errors"
+    exit 1
+  fi
+
+  # Run Claude with prompt (with timeout if available)
   # Watch progress: tail -f ralph.log
-  if cat "$PROMPT_FILE" | claude "${CLAUDE_ARGS[@]}" 2>&1 | tee -a "$LOG_FILE"; then
-    # Print iteration summary in build mode
-    if [ "$MODE" = "build" ]; then
-      print_iteration_summary "$ITERATION_START"
-      # Push to remote backup after each successful iteration
-      push_to_backup
+  EXIT_STATUS="ok"
+
+  if [ -n "$TIMEOUT_CMD" ]; then
+    if $TIMEOUT_CMD "$ITERATION_TIMEOUT" bash -c "cat '$PROMPT_FILE' | claude ${CLAUDE_ARGS[*]}" 2>&1 | tee -a "$LOG_FILE"; then
+      CONSECUTIVE_ERRORS=0
     else
-      echo "Iteration $ITERATION complete"
+      EXIT_CODE=$?
+      if [ "$EXIT_CODE" -eq 124 ]; then
+        EXIT_STATUS="timeout"
+        echo ""
+        echo "TIMEOUT: Iteration $ITERATION exceeded $ITERATION_TIMEOUT"
+      else
+        EXIT_STATUS="error"
+        echo ""
+        echo "ERROR: Iteration $ITERATION failed (exit code $EXIT_CODE)"
+      fi
+      CONSECUTIVE_ERRORS=$((CONSECUTIVE_ERRORS + 1))
     fi
   else
-    EXIT_CODE=$?
-    echo ""
-    echo "Claude exited with code $EXIT_CODE"
-    cleanup "error" "$EXIT_CODE"
-    exit $EXIT_CODE
+    if cat "$PROMPT_FILE" | claude "${CLAUDE_ARGS[@]}" 2>&1 | tee -a "$LOG_FILE"; then
+      CONSECUTIVE_ERRORS=0
+    else
+      EXIT_STATUS="error"
+      echo "ERROR: Iteration $ITERATION failed"
+      CONSECUTIVE_ERRORS=$((CONSECUTIVE_ERRORS + 1))
+    fi
+  fi
+
+  # Log iteration result
+  echo "" >> "$LOG_FILE"
+  echo "=== Iteration $ITERATION finished: $EXIT_STATUS $(date '+%H:%M:%S') ===" >> "$LOG_FILE"
+
+  # Print summary and backup
+  if [ "$MODE" = "build" ]; then
+    print_iteration_summary "$ITERATION_START"
+    push_to_backup
+  else
+    echo "Iteration $ITERATION complete ($EXIT_STATUS)"
   fi
 
   echo ""
 
-  sleep 1
+  sleep 2
 done

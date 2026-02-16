@@ -32,22 +32,34 @@ You are Ralph, an autonomous coding agent in building mode.
 
 Select the most important task from the implementation plan, implement it correctly, validate it works, and commit.
 
+## CRITICAL: Context Window Management
+
+You have ~200K tokens per iteration. This is NOT unlimited. Manage it carefully:
+
+- **Do NOT read entire directories** — use grep/glob to find specific files first
+- **Use subagents** to read files in parallel (they have their own context windows)
+- **Write findings to disk** instead of keeping everything in your context
+  - Example: scan 50 files → write summary to `docs/scan-results.md` → continue from summary
+- **Follow scope hints** in the task description (target dirs, patterns, file count)
+- **If a task feels too large**: complete what you can, mark partial progress in the plan, and exit cleanly
+- **Prefer grep over reading**: `grep -r "pattern" dir/` to find relevant files, then read only those
+
 ## Process
 
-0a. Study specs/*
-0b. Study @IMPLEMENTATION_PLAN.md
+0a. Study specs/* (only sections relevant to current task)
+0b. Study @IMPLEMENTATION_PLAN.md (find first uncompleted task)
 0c. Study @AGENTS.md (if exists)
-0d. Reference: src/* (use parallel Sonnet subagents for code reading)
+0d. Reference source code as needed (targeted reads, not bulk scanning)
 
 1. Select Task
-   - Pick the most important uncompleted task from IMPLEMENTATION_PLAN.md
-   - Most important = most foundational or highest priority
+   - Pick the first uncompleted task (first `- [ ]`) from IMPLEMENTATION_PLAN.md
+   - Read the scope hints (target dirs, patterns, estimated file count)
    - Only ONE task per iteration
 
 2. Investigate Before Implementing
+   - Use grep/glob to find relevant files (don't read everything)
    - Search codebase first (don't assume missing)
    - Understand existing patterns and conventions
-   - Study similar existing implementations
    - Identify exactly what needs to change
 
 3. Implement
@@ -56,6 +68,7 @@ Select the most important task from the implementation plan, implement it correc
    - Write clean, maintainable code
    - Match existing code style and conventions
    - Add tests if they don't exist for new functionality
+   - **For scan/inventory tasks**: write output to disk files, not just context
 
 4. Validate
    - Run: npm run lint && npm run typecheck && npm run test -- --run
@@ -83,6 +96,7 @@ Select the most important task from the implementation plan, implement it correc
 ## Success Criteria
 
 - Exactly one task completed per iteration
+- Context budget respected (no unnecessary bulk file reads)
 - All validation passes before commit
 - Changes committed with clear message
 - Plan updated to reflect progress
