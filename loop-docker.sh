@@ -182,9 +182,11 @@ check_complete() {
     return 1
   fi
 
-  local incomplete=$(grep -c '^\s*- \[ \]' "$PLAN_FILE" 2>/dev/null || echo "0")
+  local incomplete=$(grep -c '^\s*- \[ \]' "$PLAN_FILE" 2>/dev/null || true)
+  incomplete=${incomplete:-0}
   if [ "$incomplete" -eq 0 ]; then
-    local completed=$(grep -c '^\s*- \[x\]' "$PLAN_FILE" 2>/dev/null || echo "0")
+    local completed=$(grep -c '^\s*- \[x\]' "$PLAN_FILE" 2>/dev/null || true)
+    completed=${completed:-0}
     [ "$completed" -gt 0 ] && return 0
   fi
   return 1
@@ -211,7 +213,7 @@ MAX_CONSECUTIVE_ERRORS=5  # Stop loop after 5 consecutive errors (not task-relat
 init_stuck_tracker() {
   if [ -f "$STUCK_FILE" ]; then
     LAST_TASK=$(grep "^LAST_TASK=" "$STUCK_FILE" 2>/dev/null | cut -d'"' -f2 || echo "")
-    STUCK_COUNT=$(grep "^STUCK_COUNT=" "$STUCK_FILE" 2>/dev/null | cut -d= -f2 || echo "0")
+    STUCK_COUNT=$(grep "^STUCK_COUNT=" "$STUCK_FILE" 2>/dev/null | cut -d= -f2 || true);
     [[ "$STUCK_COUNT" =~ ^[0-9]+$ ]] || STUCK_COUNT=0
   fi
 }
@@ -276,8 +278,10 @@ print_iteration_summary() {
   local mins=$((duration / 60))
   local secs=$((duration % 60))
 
-  local completed=$(grep -c '^\s*- \[x\]' "$PLAN_FILE" 2>/dev/null || echo "0")
-  local total_tasks=$(grep -c '^\s*- \[' "$PLAN_FILE" 2>/dev/null || echo "0")
+  local completed=$(grep -c '^\s*- \[x\]' "$PLAN_FILE" 2>/dev/null || true);
+  completed=${completed:-0}
+  local total_tasks=$(grep -c '^\s*- \[' "$PLAN_FILE" 2>/dev/null || true);
+  total_tasks=${total_tasks:-0}
   local pct=0
   [ "$total_tasks" -gt 0 ] && pct=$((completed * 100 / total_tasks))
 
@@ -302,9 +306,12 @@ generate_report() {
   local minutes=$((duration / 60))
   local seconds=$((duration % 60))
 
-  local completed=$(grep -c '^\s*- \[x\]' "$PLAN_FILE" 2>/dev/null || echo "0")
-  local skipped=$(grep -c '^\s*- \[S\]' "$PLAN_FILE" 2>/dev/null || echo "0")
-  local remaining=$(grep -c '^\s*- \[ \]' "$PLAN_FILE" 2>/dev/null || echo "0")
+  local completed=$(grep -c '^\s*- \[x\]' "$PLAN_FILE" 2>/dev/null || true);
+  completed=${completed:-0}
+  local skipped=$(grep -c '^\s*- \[S\]' "$PLAN_FILE" 2>/dev/null || true);
+  skipped=${skipped:-0}
+  local remaining=$(grep -c '^\s*- \[ \]' "$PLAN_FILE" 2>/dev/null || true);
+  remaining=${remaining:-0}
   local total=$((completed + skipped + remaining))
 
   cat > "$REPORT_FILE" << EOF

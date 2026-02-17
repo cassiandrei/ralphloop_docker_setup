@@ -215,11 +215,13 @@ check_all_tasks_complete() {
   fi
 
   # Count incomplete tasks (lines with "- [ ]")
-  local incomplete=$(grep -c '^\s*- \[ \]' "$PLAN_FILE" 2>/dev/null || echo "0")
+  local incomplete=$(grep -c '^\s*- \[ \]' "$PLAN_FILE" 2>/dev/null || true);
+  incomplete=${incomplete:-0}
 
   if [ "$incomplete" -eq 0 ]; then
     # Double-check there are actually completed tasks
-    local completed=$(grep -c '^\s*- \[x\]' "$PLAN_FILE" 2>/dev/null || echo "0")
+    local completed=$(grep -c '^\s*- \[x\]' "$PLAN_FILE" 2>/dev/null || true);
+    completed=${completed:-0}
     if [ "$completed" -gt 0 ]; then
       return 0  # All tasks complete
     fi
@@ -249,7 +251,7 @@ init_stuck_tracker() {
   if [ -f "$STUCK_FILE" ]; then
     # Security: Use safe parsing instead of source (prevents shell injection)
     LAST_TASK=$(grep "^LAST_TASK=" "$STUCK_FILE" 2>/dev/null | cut -d'"' -f2 || echo "")
-    STUCK_COUNT=$(grep "^STUCK_COUNT=" "$STUCK_FILE" 2>/dev/null | cut -d= -f2 || echo "0")
+    STUCK_COUNT=$(grep "^STUCK_COUNT=" "$STUCK_FILE" 2>/dev/null | cut -d= -f2 || true);
     # Ensure STUCK_COUNT is a number
     [[ "$STUCK_COUNT" =~ ^[0-9]+$ ]] || STUCK_COUNT=0
   else
@@ -314,7 +316,7 @@ print_iteration_summary() {
   local secs=$((duration % 60))
 
   local last_commit=$(git log -1 --format="%h %s" 2>/dev/null || echo "")
-  local last_commit_time=$(git log -1 --format="%ct" 2>/dev/null || echo "0")
+  local last_commit_time=$(git log -1 --format="%ct" 2>/dev/null || true);
 
   local commit_msg=""
   if [ "$last_commit_time" -ge "$iteration_start" ]; then
@@ -329,12 +331,16 @@ print_iteration_summary() {
   if [ -n "$commit_msg" ]; then
     new_files=$(git diff-tree --no-commit-id --name-status -r HEAD 2>/dev/null | grep "^A" | cut -f2 || echo "")
     modified_files=$(git diff-tree --no-commit-id --name-status -r HEAD 2>/dev/null | grep "^M" | cut -f2 || echo "")
-    files_new=$(echo "$new_files" | grep -c . 2>/dev/null || echo "0")
-    files_modified=$(echo "$modified_files" | grep -c . 2>/dev/null || echo "0")
+    files_new=$(echo "$new_files" | grep -c . 2>/dev/null || true);
+    files_new=${files_new:-0}
+    files_modified=$(echo "$modified_files" | grep -c . 2>/dev/null || true);
+    files_modified=${files_modified:-0}
   fi
 
-  local completed=$(grep -c '^\s*- \[x\]' "$PLAN_FILE" 2>/dev/null || echo "0")
-  local total_tasks=$(grep -c '^\s*- \[' "$PLAN_FILE" 2>/dev/null || echo "0")
+  local completed=$(grep -c '^\s*- \[x\]' "$PLAN_FILE" 2>/dev/null || true);
+  completed=${completed:-0}
+  local total_tasks=$(grep -c '^\s*- \[' "$PLAN_FILE" 2>/dev/null || true);
+  total_tasks=${total_tasks:-0}
   local pct=0
   if [ "$total_tasks" -gt 0 ]; then
     pct=$((completed * 100 / total_tasks))
@@ -364,12 +370,15 @@ generate_report() {
   local minutes=$((duration / 60))
   local seconds=$((duration % 60))
 
-  local completed=$(grep -c '^\s*- \[x\]' "$PLAN_FILE" 2>/dev/null || echo "0")
-  local skipped=$(grep -c '^\s*- \[S\]' "$PLAN_FILE" 2>/dev/null || echo "0")
-  local remaining=$(grep -c '^\s*- \[ \]' "$PLAN_FILE" 2>/dev/null || echo "0")
+  local completed=$(grep -c '^\s*- \[x\]' "$PLAN_FILE" 2>/dev/null || true);
+  completed=${completed:-0}
+  local skipped=$(grep -c '^\s*- \[S\]' "$PLAN_FILE" 2>/dev/null || true);
+  skipped=${skipped:-0}
+  local remaining=$(grep -c '^\s*- \[ \]' "$PLAN_FILE" 2>/dev/null || true);
+  remaining=${remaining:-0}
   local total=$((completed + skipped + remaining))
 
-  local commit_count=$(git rev-list --count HEAD 2>/dev/null || echo "0")
+  local commit_count=$(git rev-list --count HEAD 2>/dev/null || true);
 
   cat > "$REPORT_FILE" << EOF
 # Ralph Session Report
